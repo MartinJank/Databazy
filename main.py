@@ -135,6 +135,7 @@ def write_conversations():
 
                 # Writing again after 10k rows
                 if iterator % 10000 == 0:
+                    # Inserting author_id to author table if missing
                     args_str = ','.join(cursor.mogrify("(%s)", element).decode("utf-8") for element in authors_ids_list)
                     cursor.execute('INSERT INTO authors VALUES {0} ON CONFLICT DO NOTHING'.format(args_str), )
 
