@@ -1,10 +1,11 @@
 import json
 import psycopg2
 import time
-import datetime
-import csv
 
+
+# Reading authors file and writing to author table
 def write_authors():
+    # Connecting to postgres database
     connection = psycopg2.connect(user="postgres",
                                   password="admin",
                                   host="127.0.0.1",
@@ -13,11 +14,13 @@ def write_authors():
     cursor = connection.cursor()
 
     try:
+        # For time measurement
         start = time.time()
         with open("authors.jsonl") as file:
             list_to_insert = []
             for iterator, line in enumerate(file):
 
+                # Creating a list to insert multiple rows at the same time
                 id_to_insert = (json.loads(line))["id"]
                 name_to_insert = (json.loads(line))["name"].replace("\x00", "\uFFFD")
                 username_to_insert = (json.loads(line))["username"].replace("\x00", "\uFFFD")
@@ -31,16 +34,20 @@ def write_authors():
                                        following_count_to_insert, tweet_count_to_insert, listed_count_to_insert,
                                        description_to_insert))
 
+                # Inserting 10k blocks
                 if iterator % 10000 == 0:
                     args_str = ','.join(
                         cursor.mogrify("(%s,%s,%s,%s,%s,%s,%s,%s)", element).decode("utf-8") for element in
                         list_to_insert)
                     cursor.execute('INSERT INTO authors VALUES {0} ON CONFLICT DO NOTHING'.format(args_str), )
                     connection.commit()
+                    # Clearing the inserted list to use it in next iteration of a loop
                     list_to_insert.clear()
+                    # Time of inserting
                     print("Total time:", time.time() - total, "s | 10k block:", time.time() - start, "s")
                     start = time.time()
 
+            # Inserting the remaining part
             if list_to_insert:
                 args_str = ','.join(
                     cursor.mogrify("(%s,%s,%s,%s,%s,%s,%s,%s)", element).decode("utf-8") for element in list_to_insert)
@@ -52,12 +59,14 @@ def write_authors():
     except (Exception, psycopg2.Error) as error:
         print("Failed to insert record into table", error)
 
+    # Closing connection
     if connection:
         cursor.close()
         connection.close()
         print("PostgreSQL connection is closed")
 
 
+# Reading conversations file and writing to corresponding tables
 def write_conversations():
     connection = psycopg2.connect(user="postgres",
                                   password="admin",
@@ -124,7 +133,8 @@ def write_conversations():
                 except Exception:
                     pass
 
-                if iterator % 1000 == 0:
+                # Writing again after 10k rows
+                if iterator % 10000 == 0:
                     args_str = ','.join(cursor.mogrify("(%s)", element).decode("utf-8") for element in authors_ids_list)
                     cursor.execute('INSERT INTO authors VALUES {0} ON CONFLICT DO NOTHING'.format(args_str), )
 
@@ -151,9 +161,9 @@ def write_conversations():
                         args_str = ','.join(
                             cursor.mogrify("(default,%s)", element).decode("utf-8") for element in hashtags_list)
                         cursor.execute('INSERT INTO hashtags VALUES {0} ON CONFLICT DO NOTHING'.format(args_str), )
-                        # print("here")
 
                     connection.commit()
+                    # Clearing every list
                     conversations_list.clear()
                     authors_ids_list.clear()
                     hashtags_list.clear()
@@ -186,12 +196,12 @@ def write_conversations():
                 args_str = ','.join(
                     cursor.mogrify("(default,%s)", element).decode("utf-8") for element in hashtags_list)
                 cursor.execute('INSERT INTO hashtags VALUES {0} ON CONFLICT DO NOTHING'.format(args_str), )
-                # print("here")
 
             connection.commit()
             conversations_list.clear()
             authors_ids_list.clear()
             hashtags_list.clear()
+            # Time
             print("Total time:", time.time() - total, "s | 10k block:", time.time() - start, "s")
 
     except (Exception, psycopg2.Error) as error:
@@ -203,6 +213,7 @@ def write_conversations():
         print("PostgreSQL connection is closed")
 
 
+# Writing data to remaining tables
 def write_other():
     connection = psycopg2.connect(user="postgres",
                                   password="admin",
@@ -220,6 +231,7 @@ def write_other():
 
             for iterator, line in enumerate(file):
 
+                # Annotations
                 try:
                     for annotation in (json.loads(line))["entities"]["annotations"]:
                         annotations_list.append(((json.loads(line))['id'], annotation['normalized_text'],
@@ -227,8 +239,10 @@ def write_other():
                 except Exception:
                     pass
 
+                # Links
                 try:
                     for link in (json.loads(line))["entities"]["urls"]:
+                        # Length cannot be more than 2048
                         if len(link['expanded_url']) <= 2048:
                             links_list.append(((json.loads(line))['id'], link['expanded_url'],
                                                (link['title'] if 'title' in link else ""),
@@ -236,6 +250,7 @@ def write_other():
                 except Exception:
                     pass
 
+                # Context annotations
                 try:
                     for domain in (json.loads(line))["context_annotations"]:
                         domain_id = domain["domain"]["id"]
@@ -248,6 +263,7 @@ def write_other():
                 except Exception:
                     pass
 
+                # Writing 10k block
                 if iterator % 10000 == 0:
                     if annotations_list:
                         args_str = ','.join(
@@ -270,6 +286,7 @@ def write_other():
                     #     connection.commit()
                     #     context_annotations_list.clear()
 
+            # Writing remaining data
             if annotations_list:
                 args_str = ','.join(
                     cursor.mogrify('(default,%s,%s,%s,%s)', i).decode('utf-8') for i in annotations_list)
@@ -283,16 +300,17 @@ def write_other():
             links_list.clear()
             print("Total time:", time.time() - total, "s | 10k block:", time.time() - start, "s")
 
-
     except (Exception, psycopg2.Error) as error:
         print("Failed to insert record into table", error)
 
+    # Closing connention
     if connection:
         cursor.close()
         connection.close()
         print("PostgreSQL connection is closed")
 
 
+# Main program
 total = time.time()
 write_authors()
 write_conversations()
